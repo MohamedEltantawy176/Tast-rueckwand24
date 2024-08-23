@@ -1,0 +1,15 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+.active {
+  @apply border-2 border-green-700;
+}
+
+.material_color {
+  @apply w-6 h-6 rounded-full mx-2 cursor-pointer absolute top-[2px] right-[-6px];
+}
+
+.material_container {
+  @apply relative w-[2rem] h-[2rem] rounded-full;
+}
