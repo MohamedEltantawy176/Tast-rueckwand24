@@ -1,31 +1,207 @@
 import { useState, useEffect, useRef } from "react";
-import { Rnd } from "react-rnd";
-import ResizeHandler from "./ResizeHandler";
 import gsap from "gsap";
 
 const Image = ({
   image,
-  cmHeight,
-  cmWidth,
-  handleCmHeight,
-  handleCmWidth,
-  handleImageData,
   color,
+  circles,
+  setCircles,
+  isColliding,
+  areCirclesColliding,
+  handleChildRef,
+  handleParentDimensions,
 }) => {
-  const [renderedDimensions, setRenderedDimensions] = useState({
-    width: 50,
-    height: 50,
-  });
-  const [renderedPosition, setRenderedPosition] = useState({
-    x: 0,
-    y: 0,
-  });
   const [parentDimensions, setParentDimensions] = useState({
     width: 0,
     height: 0,
   });
+  const [dragging, setDragging] = useState(null);
+  const [resizing, setResizing] = useState(null);
+  const [hovering, setHovering] = useState(null);
+
   const parentRef = useRef(null);
   const imageRef = useRef(null);
+  const canvasRef = useRef(null);
+
+  useEffect(() => {
+    if (handleChildRef) {
+      handleChildRef(canvasRef.current);
+    }
+  }, [handleChildRef]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    drawCircles(ctx);
+  }, [circles]);
+
+  useEffect(() => {
+    handleParentDimensions(parentDimensions);
+  }, [parentDimensions]);
+
+  const constrainCircle = (circle) => {
+    const canvas = canvasRef.current;
+
+    const constrainedCircle = { ...circle };
+
+    constrainedCircle.radius = Math.min(circle.radius, canvas.height / 2);
+
+    return constrainedCircle;
+  };
+
+  const constrainCirclePosition = (circle) => {
+    const canvas = canvasRef.current;
+    const minRadius = 10;
+    const constrainedCircle = { ...circle };
+
+    constrainedCircle.x = Math.max(
+      constrainedCircle.radius,
+      Math.min(canvas.width - constrainedCircle.radius, constrainedCircle.x)
+    );
+    constrainedCircle.y = Math.max(
+      constrainedCircle.radius,
+      Math.min(canvas.height - constrainedCircle.radius, constrainedCircle.y)
+    );
+
+    return constrainedCircle;
+  };
+
+  const canCreateCircle = (newCircle) => {
+    return !circles?.some((circle) => isColliding(newCircle, circle));
+  };
+
+  const drawCircles = (ctx) => {
+    ctx.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height);
+    circles?.forEach((circle) => {
+      ctx.beginPath();
+      ctx.arc(circle.x, circle.y, circle.radius, 0, Math.PI * 2);
+
+      ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+      ctx.fill();
+      ctx.strokeStyle = "green";
+      ctx.lineWidth = 2;
+      ctx.stroke();
+
+      ctx.fillStyle = "black";
+      ctx.font = "16px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(circle.id + 1, circle.x, circle.y);
+
+      ctx.closePath();
+    });
+  };
+
+  const handleMouseDown = (e) => {
+    const { offsetX, offsetY } = e.nativeEvent;
+    const clickedCircle = circles?.find(
+      (circle) =>
+        Math.sqrt((circle.x - offsetX) ** 2 + (circle.y - offsetY) ** 2) <=
+        circle.radius
+    );
+    if (clickedCircle) {
+      if (
+        Math.sqrt(
+          (clickedCircle.x - offsetX) ** 2 + (clickedCircle.y - offsetY) ** 2
+        ) >
+        clickedCircle.radius - 10
+      ) {
+        setResizing(clickedCircle.id);
+        canvasRef.current.style.cursor = "nwse-resize";
+      } else {
+        setDragging(clickedCircle.id);
+        canvasRef.current.style.cursor = "move";
+      }
+    }
+  };
+  const handleMouseMove = (e) => {
+    const { offsetX, offsetY } = e.nativeEvent;
+
+    const hoveredCircle = circles?.find(
+      (circle) =>
+        Math.sqrt((circle.x - offsetX) ** 2 + (circle.y - offsetY) ** 2) <=
+        circle.radius
+    );
+
+    if (hoveredCircle) {
+      canvasRef.current.style.cursor = "pointer";
+      setHovering(hoveredCircle.id);
+    } else if (!dragging && !resizing) {
+      canvasRef.current.style.cursor = "default";
+      setHovering(null);
+    }
+
+    if (dragging !== null) {
+      const updatedCircles = circles.map((circle) => {
+        if (circle.id === dragging) {
+          const newCircle = { ...circle, x: offsetX, y: offsetY };
+          const constrainedCircle = constrainCirclePosition(newCircle);
+          const allCircles = circles.map((c) =>
+            c.id === dragging ? constrainedCircle : c
+          );
+          if (!areCirclesColliding(allCircles)) {
+            return constrainedCircle;
+          }
+        }
+        return circle;
+      });
+      setCircles(updatedCircles);
+    }
+
+    if (resizing !== null) {
+      const updatedCircles = circles.map((circle) => {
+        if (circle.id === resizing) {
+          const newRadius = Math.sqrt(
+            (circle.x - offsetX) ** 2 + (circle.y - offsetY) ** 2
+          );
+          const newCircle = { ...circle, radius: newRadius };
+          newCircle.area = Math.PI * newCircle.radius * newCircle.radius;
+          const constrainedCircle = constrainCircle(newCircle);
+          const allCircles = circles.map((c) =>
+            c.id === resizing ? constrainedCircle : c
+          );
+          if (!areCirclesColliding(allCircles)) {
+            return constrainedCircle;
+          }
+        }
+        return circle;
+      });
+      setCircles(updatedCircles);
+    }
+  };
+
+  const handleMouseUp = () => {
+    setDragging(null);
+    setResizing(null);
+    canvasRef.current.style.cursor = "default";
+  };
+
+  const handleDoubleClick = (e) => {
+    const { offsetX, offsetY } = e.nativeEvent;
+    const newCircle = {
+      id: circles?.length,
+      x: offsetX,
+      y: offsetY,
+      radius: 10,
+      area: Math.PI * 10 * 10,
+      color: "rgba(0, 0, 0, 0.2)",
+    };
+
+    if (canCreateCircle(newCircle)) {
+      const updatedCircles = [...(circles ?? []), newCircle];
+      if (!areCirclesColliding(updatedCircles)) {
+        setCircles(updatedCircles);
+      } else {
+        alert(
+          "Hier kann kein Kreis erstellt werden, da er sich mit einem vorhandenen Kreis überschneidet."
+        );
+      }
+    } else {
+      alert(
+        "Hier kann kein Kreis erstellt werden, da er sich mit einem vorhandenen Kreis überschneidet."
+      );
+    }
+  };
 
   useEffect(() => {
     const parent = parentRef.current;
@@ -48,35 +224,6 @@ const Image = ({
     };
   }, []);
   useEffect(() => {
-    setRenderedDimensions({
-      width: (50 * parentDimensions.width) / 900,
-      height: (50 * parentDimensions.height) / 300,
-    });
-  }, [parentDimensions]);
-
-  useEffect(() => {
-    let w = Math.floor(
-      (renderedDimensions.width * 900) / parentDimensions.width <= 900
-        ? (renderedDimensions.width * 900) / parentDimensions.width
-        : 900
-    );
-    let h = Math.floor(
-      (renderedDimensions.height * 300) / parentDimensions.height <= 300
-        ? (renderedDimensions.height * 300) / parentDimensions.height
-        : 300
-    );
-    handleCmHeight(h);
-
-    handleCmWidth(w);
-    handleImageData(
-      renderedPosition.x,
-      renderedPosition.y,
-      renderedDimensions.height,
-      renderedDimensions.width
-    );
-  }, [parentDimensions, renderedDimensions, renderedPosition]);
-
-  useEffect(() => {
     parent = gsap.to(parentRef.current, {
       opacity: 1,
       y: 0,
@@ -98,44 +245,16 @@ const Image = ({
         alt="not found"
         ref={imageRef}
       />
-      <Rnd
-        default={{
-          x: 0,
-          y: 0,
-          height: 50,
-          width: 50,
-        }}
-        size={{
-          width: (cmWidth * parentDimensions.width) / 900,
-          height: (cmHeight * parentDimensions.height) / 300,
-        }}
-        bounds={".parent"}
-        resizeHandleComponent={{
-          bottomLeft: <ResizeHandler />,
-          bottomRight: <ResizeHandler />,
-          topLeft: <ResizeHandler />,
-          topRight: <ResizeHandler />,
-        }}
-        maxWidth={parentDimensions.width}
-        maxHeight={parentDimensions.height}
-        onResizeStop={(_, __, ref, ___, { x, y }) => {
-          setRenderedDimensions({
-            height: parseInt(ref.style.height.slice(0)),
-            width: parseInt(ref.style.width.slice(0)),
-          });
-          setRenderedPosition({
-            x,
-            y,
-          });
-        }}
-        onDragStop={(_, data) => {
-          const { x, y } = data;
-          setRenderedPosition({ x, y });
-        }}
-        className="z-20 border-[2px] border-green-700 h-[100%] w- [100] "
-      >
-        <div className="w-full h-full bg-black opacity-50 cursor-pointer" />
-      </Rnd>
+      <canvas
+        className=" absolute top-0 overflow-clip"
+        width={parentDimensions.width}
+        height={parentDimensions.height}
+        ref={canvasRef}
+        onMouseDown={handleMouseDown}
+        onMouseMove={handleMouseMove}
+        onMouseUp={handleMouseUp}
+        onDoubleClick={handleDoubleClick}
+      />
     </div>
   );
 };
